@@ -1,0 +1,52 @@
+{
+  "name": "eslint-plugin-unicode-typography",
+  "version": "1.0.0",
+  "description": "ESLint plugin to enforce use of unicode characaters for typography",
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "format": "prettier --write src/**/*.ts",
+    "lint": "eslint src",
+    "test": "jest"
+  },
+  "author": "Andrew Fong <id@andrewfong.com>",
+  "license": "MIT",
+  "keywords": [
+    "eslint",
+    "eslintplugin",
+    "typography"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fongandrew/eslint-plugin-css-class-usage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fongandrew/eslint-plugin-css-class-usage/issues"
+  },
+  "peerDependencies": {
+    "eslint": ">=7.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "@types/eslint": "^9.6.1",
+    "@types/estree-jsx": "^1.0.5",
+    "@types/jest": "^29.5.3",
+    "@types/node": "^20.4.5",
+    "@typescript-eslint/eslint-plugin": "8.23.0",
+    "@typescript-eslint/parser": "^8.23.0",
+    "@typescript-eslint/rule-tester": "^8.23.0",
+    "eslint": "^9.19.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.2.3",
+    "jest": "^29.6.2",
+    "prettier": "^3.4.2",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.1.6",
+    "typescript-eslint": "^8.22.0"
+  },
+  "packageManager": "pnpm@10.27.0"
+}
