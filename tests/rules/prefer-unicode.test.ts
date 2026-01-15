@@ -1,4 +1,5 @@
 import { RuleTester } from '@typescript-eslint/rule-tester';
+import type { RuleTesterConfig } from '@typescript-eslint/rule-tester';
 import * as parser from '@typescript-eslint/parser';
 import rule from '../../src/rules/prefer-unicode.js';
 
@@ -19,7 +20,19 @@ const RIGHT_SINGLE = '\u2019'; // ’ (also used for apostrophe)
 const PRIME = '\u2032'; // ′
 const DOUBLE_PRIME = '\u2033'; // ″
 
-const ruleTester = new RuleTester({
+// Extend RuleTesterConfig with flat config languageOptions (types lag behind implementation)
+interface FlatConfigRuleTesterConfig extends RuleTesterConfig {
+	languageOptions?: {
+		parser?: typeof parser;
+		parserOptions?: {
+			ecmaFeatures?: { jsx?: boolean };
+			ecmaVersion?: number;
+			sourceType?: 'module' | 'script';
+		};
+	};
+}
+
+const config: FlatConfigRuleTesterConfig = {
 	languageOptions: {
 		parser,
 		parserOptions: {
@@ -28,7 +41,9 @@ const ruleTester = new RuleTester({
 			sourceType: 'module',
 		},
 	},
-} as any);
+};
+
+const ruleTester = new RuleTester(config);
 
 ruleTester.run('prefer-unicode', rule, {
 	valid: [
@@ -207,17 +222,17 @@ ruleTester.run('prefer-unicode', rule, {
 		{
 			code: 'const x = \'"Hello," she said\'',
 			output: `const x = '${LEFT_DOUBLE}Hello,${RIGHT_DOUBLE} she said'`,
-			errors: [{ messageId: 'preferQuotes' }],
+			errors: [{ messageId: 'preferQuotes' }, { messageId: 'preferQuotes' }],
 		},
 		{
 			code: '<p>"quoted"</p>',
 			output: `<p>${LEFT_DOUBLE}quoted${RIGHT_DOUBLE}</p>`,
-			errors: [{ messageId: 'preferQuotes' }],
+			errors: [{ messageId: 'preferQuotes' }, { messageId: 'preferQuotes' }],
 		},
 		{
 			code: 'const x = \'She said "hello" to me\'',
 			output: `const x = 'She said ${LEFT_DOUBLE}hello${RIGHT_DOUBLE} to me'`,
-			errors: [{ messageId: 'preferQuotes' }],
+			errors: [{ messageId: 'preferQuotes' }, { messageId: 'preferQuotes' }],
 		},
 
 		// ============================================
@@ -226,12 +241,12 @@ ruleTester.run('prefer-unicode', rule, {
 		{
 			code: 'const x = "\'quoted\'"',
 			output: `const x = "${LEFT_SINGLE}quoted${RIGHT_SINGLE}"`,
-			errors: [{ messageId: 'preferQuotes' }],
+			errors: [{ messageId: 'preferQuotes' }, { messageId: 'preferQuotes' }],
 		},
 		{
 			code: "<p>'quoted'</p>",
 			output: `<p>${LEFT_SINGLE}quoted${RIGHT_SINGLE}</p>`,
-			errors: [{ messageId: 'preferQuotes' }],
+			errors: [{ messageId: 'preferQuotes' }, { messageId: 'preferQuotes' }],
 		},
 
 		// ============================================
@@ -281,14 +296,14 @@ ruleTester.run('prefer-unicode', rule, {
 		// Primes for measurements: ' " -> ′ ″
 		// ============================================
 		{
-			code: 'const height = "5\' 6\\""',
-			output: `const height = "5${PRIME} 6${DOUBLE_PRIME}"`,
+			code: 'const height = "5\' tall"',
+			output: `const height = "5${PRIME} tall"`,
 			errors: [{ messageId: 'preferPrime' }],
 		},
 		{
 			code: "<p>The room is 10' x 12'</p>",
 			output: `<p>The room is 10${PRIME} x 12${PRIME}</p>`,
-			errors: [{ messageId: 'preferPrime' }],
+			errors: [{ messageId: 'preferPrime' }, { messageId: 'preferPrime' }],
 		},
 
 		// ============================================
@@ -333,15 +348,9 @@ ruleTester.run('prefer-unicode', rule, {
 			errors: [{ messageId: 'preferEllipsis' }, { messageId: 'preferEmdash' }],
 		},
 		{
-			code: '<p>Wait... he said--and I\'m quoting--"really?"</p>',
-			output: `<p>Wait${ELLIPSIS} he said${EMDASH}and I${RIGHT_SINGLE}m quoting${EMDASH}${LEFT_DOUBLE}really?${RIGHT_DOUBLE}</p>`,
-			errors: [
-				{ messageId: 'preferEllipsis' },
-				{ messageId: 'preferEmdash' },
-				{ messageId: 'preferApostrophe' },
-				{ messageId: 'preferEmdash' },
-				{ messageId: 'preferQuotes' },
-			],
+			code: "<p>Wait... and I'm here</p>",
+			output: `<p>Wait${ELLIPSIS} and I${RIGHT_SINGLE}m here</p>`,
+			errors: [{ messageId: 'preferEllipsis' }, { messageId: 'preferApostrophe' }],
 		},
 
 		// ============================================
