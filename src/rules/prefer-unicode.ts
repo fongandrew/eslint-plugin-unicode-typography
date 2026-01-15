@@ -48,6 +48,17 @@ const CHARS = {
 // Default attributes to check
 const DEFAULT_CHECKED_ATTRIBUTES = ['title', 'alt', 'label', 'aria-label', 'aria-describedby'];
 
+// Pre-compiled regexes (avoid per-call compilation)
+const REGEX_ELLIPSIS = /\.\.\./g;
+const REGEX_EMDASH = /--/g;
+const REGEX_ENDASH = / - /g;
+const REGEX_DOUBLE_QUOTE = /"/g;
+const REGEX_SINGLE_QUOTE = /'/g;
+const REGEX_DOUBLE_PRIME = /(\d)"/g;
+
+// Quick-check characters for early bailout
+const QUICK_CHECK_CHARS = ['.', '-', "'", '"'];
+
 // Get element name from JSX identifier
 function getElementName(
 	node: TSESTree.JSXIdentifier | TSESTree.JSXMemberExpression | TSESTree.JSXNamespacedName,
@@ -225,6 +236,25 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 			checkChildren = true,
 		} = options;
 
+		// Pre-compute Sets for O(1) lookups (avoid repeated array.includes())
+		const allowedComponentsSet: Set<string> | null =
+			typeof checkChildren === 'object'
+				? new Set(checkChildren.onlyComponents.flatMap((c) => [c, c.toLowerCase()]))
+				: null;
+
+		const allowedAttributesSet: Set<string> | null =
+			typeof checkAttributes === 'object' ? new Set(checkAttributes.onlyAttributes) : null;
+
+		const allowedFunctionsSet: Set<string> | null =
+			typeof checkStringLiterals === 'object'
+				? new Set(checkStringLiterals.onlyFunctions)
+				: null;
+
+		const allowedTagsSet: Set<string> | null =
+			typeof checkTemplateLiterals === 'object' && checkTemplateLiterals.tags
+				? new Set(checkTemplateLiterals.tags)
+				: null;
+
 		// Track JSX element context
 		const jsxElementStack: string[] = [];
 
@@ -242,11 +272,7 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 			const currentElement = getCurrentElementName();
 			if (!currentElement) return false;
 
-			const allowedComponents = checkChildren.onlyComponents;
-			return (
-				allowedComponents.includes(currentElement) ||
-				allowedComponents.includes(currentElement.toLowerCase())
-			);
+			return allowedComponentsSet!.has(currentElement);
 		}
 
 		// Check if we should check an attribute based on checkAttributes option
@@ -255,7 +281,7 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 			if (checkAttributes === true) return true;
 
 			// { onlyAttributes: [...] }
-			return checkAttributes.onlyAttributes.includes(attrName);
+			return allowedAttributesSet!.has(attrName);
 		}
 
 		// Check if we should check a string literal based on checkStringLiterals option and context
@@ -264,17 +290,16 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 			if (checkStringLiterals === true) return true;
 
 			// { onlyFunctions: [...] }
-			const allowedFunctions = checkStringLiterals.onlyFunctions;
-			return isInsideAllowedFunction(node, allowedFunctions);
+			return isInsideAllowedFunction(node);
 		}
 
 		// Check if a node is inside an allowed function call
-		function isInsideAllowedFunction(node: TSESTree.Node, allowedFunctions: string[]): boolean {
+		function isInsideAllowedFunction(node: TSESTree.Node): boolean {
 			let current: TSESTree.Node | undefined = node.parent;
 			while (current) {
 				if (current.type === AST_NODE_TYPES.CallExpression) {
 					const calleeName = getCalleeName(current);
-					if (calleeName && allowedFunctions.includes(calleeName)) {
+					if (calleeName && allowedFunctionsSet!.has(calleeName)) {
 						return true;
 					}
 				}
@@ -296,8 +321,9 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 			if (parent.type === AST_NODE_TYPES.TemplateLiteral && parent.parent) {
 				if (parent.parent.type === AST_NODE_TYPES.TaggedTemplateExpression) {
 					// It's tagged - check if tag is in allowed list
+					if (!allowedTagsSet) return false;
 					const tagName = getTagName(parent.parent);
-					return checkTemplateLiterals.tags?.includes(tagName) ?? false;
+					return allowedTagsSet.has(tagName);
 				} else {
 					// It's untagged
 					return checkTemplateLiterals.untagged ?? false;
@@ -309,13 +335,23 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 
 		// Find all replacements in a text string
 		function findReplacements(text: string, baseOffset: number): Replacement[] {
+			// Early bailout: quick check if text contains any target characters
+			let hasTargetChars = false;
+			for (const char of QUICK_CHECK_CHARS) {
+				if (text.includes(char)) {
+					hasTargetChars = true;
+					break;
+				}
+			}
+			if (!hasTargetChars) return [];
+
 			const replacements: Replacement[] = [];
 
 			// Check for ellipsis: ...
-			if (checkEllipsis) {
-				const ellipsisRegex = /\.\.\./g;
+			if (checkEllipsis && text.includes('.')) {
+				REGEX_ELLIPSIS.lastIndex = 0;
 				let match;
-				while ((match = ellipsisRegex.exec(text)) !== null) {
+				while ((match = REGEX_ELLIPSIS.exec(text)) !== null) {
 					replacements.push({
 						messageId: 'preferEllipsis',
 						start: baseOffset + match.index,
@@ -326,10 +362,10 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 			}
 
 			// Check for emdash: --
-			if (checkEmdash) {
-				const emdashRegex = /--/g;
+			if (checkEmdash && text.includes('-')) {
+				REGEX_EMDASH.lastIndex = 0;
 				let match;
-				while ((match = emdashRegex.exec(text)) !== null) {
+				while ((match = REGEX_EMDASH.exec(text)) !== null) {
 					replacements.push({
 						messageId: 'preferEmdash',
 						start: baseOffset + match.index,
@@ -340,10 +376,10 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 			}
 
 			// Check for endash: " - " (space-hyphen-space)
-			if (checkEndash) {
-				const endashRegex = / - /g;
+			if (checkEndash && text.includes(' - ')) {
+				REGEX_ENDASH.lastIndex = 0;
 				let match;
-				while ((match = endashRegex.exec(text)) !== null) {
+				while ((match = REGEX_ENDASH.exec(text)) !== null) {
 					replacements.push({
 						messageId: 'preferEndash',
 						start: baseOffset + match.index,
@@ -354,13 +390,22 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 			}
 
 			// Smart quotes and apostrophes need more complex handling
-			if (checkQuotes || checkApostrophes || checkPrimes) {
+			const hasDoubleQuote = text.includes('"');
+			const hasSingleQuote = text.includes("'");
+
+			if (
+				(checkQuotes || checkApostrophes || checkPrimes) &&
+				(hasDoubleQuote || hasSingleQuote)
+			) {
+				// Use Map for O(1) position lookup (for double-prime correction)
+				const positionToIndex = new Map<number, number>();
+
 				// Process double quotes
-				if (checkQuotes) {
-					const doubleQuoteRegex = /"/g;
+				if (checkQuotes && hasDoubleQuote) {
+					REGEX_DOUBLE_QUOTE.lastIndex = 0;
 					let match;
 					const doubleQuotePositions: number[] = [];
-					while ((match = doubleQuoteRegex.exec(text)) !== null) {
+					while ((match = REGEX_DOUBLE_QUOTE.exec(text)) !== null) {
 						doubleQuotePositions.push(match.index);
 					}
 
@@ -368,6 +413,8 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 					for (let i = 0; i < doubleQuotePositions.length; i++) {
 						const pos = doubleQuotePositions[i];
 						const isOpening = i % 2 === 0;
+						const idx = replacements.length;
+						positionToIndex.set(baseOffset + pos, idx);
 						replacements.push({
 							messageId: 'preferQuotes',
 							start: baseOffset + pos,
@@ -378,78 +425,108 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 				}
 
 				// Process single quotes and apostrophes
-				const singleQuoteRegex = /'/g;
-				let match;
-				while ((match = singleQuoteRegex.exec(text)) !== null) {
-					const pos = match.index;
-					const prevChar = pos > 0 ? text[pos - 1] : '';
-					const nextChar = pos < text.length - 1 ? text[pos + 1] : '';
+				if (hasSingleQuote) {
+					REGEX_SINGLE_QUOTE.lastIndex = 0;
+					let match;
+					while ((match = REGEX_SINGLE_QUOTE.exec(text)) !== null) {
+						const pos = match.index;
+						const prevChar = pos > 0 ? text[pos - 1] : '';
+						const nextChar = pos < text.length - 1 ? text[pos + 1] : '';
 
-					// Check if it's an apostrophe (between word characters)
-					const isApostrophe = /\w/.test(prevChar) && /\w/.test(nextChar);
+						// Inline character class tests (faster than regex)
+						const prevCode = prevChar.charCodeAt(0);
+						const nextCode = nextChar.charCodeAt(0);
+						const prevIsWord =
+							(prevCode >= 48 && prevCode <= 57) || // 0-9
+							(prevCode >= 65 && prevCode <= 90) || // A-Z
+							(prevCode >= 97 && prevCode <= 122) || // a-z
+							prevCode === 95; // _
+						const nextIsWord =
+							(nextCode >= 48 && nextCode <= 57) ||
+							(nextCode >= 65 && nextCode <= 90) ||
+							(nextCode >= 97 && nextCode <= 122) ||
+							nextCode === 95;
+						const prevIsDigit = prevCode >= 48 && prevCode <= 57;
+						const nextIsDigit = nextCode >= 48 && nextCode <= 57;
+						const prevIsSpace =
+							prevChar === ' ' ||
+							prevChar === '\t' ||
+							prevChar === '\n' ||
+							prevChar === '\r';
 
-					// Check if it's a year abbreviation ('99) or start-of-word contraction
-					const isYearAbbrev = (/\s/.test(prevChar) || pos === 0) && /\d/.test(nextChar);
+						// Check if it's an apostrophe (between word characters)
+						const isApostrophe = prevIsWord && nextIsWord;
 
-					// Check if it's after a digit (likely prime for measurement)
-					const isPrime = /\d/.test(prevChar);
+						// Check if it's a year abbreviation ('99) or start-of-word contraction
+						const isYearAbbrev = (prevIsSpace || pos === 0) && nextIsDigit;
 
-					if (isApostrophe) {
-						if (checkApostrophes) {
+						// Check if it's after a digit (likely prime for measurement)
+						const isPrime = prevIsDigit;
+
+						if (isApostrophe) {
+							if (checkApostrophes) {
+								replacements.push({
+									messageId: 'preferApostrophe',
+									start: baseOffset + pos,
+									end: baseOffset + pos + 1,
+									replacement: CHARS.RIGHT_SINGLE,
+								});
+							}
+						} else if (isYearAbbrev) {
+							if (checkApostrophes) {
+								replacements.push({
+									messageId: 'preferApostrophe',
+									start: baseOffset + pos,
+									end: baseOffset + pos + 1,
+									replacement: CHARS.RIGHT_SINGLE,
+								});
+							}
+						} else if (isPrime) {
+							// It's a prime (after a digit) - only report if primes are enabled
+							if (checkPrimes) {
+								replacements.push({
+									messageId: 'preferPrime',
+									start: baseOffset + pos,
+									end: baseOffset + pos + 1,
+									replacement: CHARS.PRIME,
+								});
+							}
+							// Skip - don't treat as quote even if primes disabled
+						} else if (checkQuotes) {
+							// It's a quote - determine opening vs closing
+							const isOpening =
+								pos === 0 ||
+								prevIsSpace ||
+								prevChar === '(' ||
+								prevChar === '[' ||
+								prevChar === '{' ||
+								prevChar === '';
 							replacements.push({
-								messageId: 'preferApostrophe',
+								messageId: 'preferQuotes',
 								start: baseOffset + pos,
 								end: baseOffset + pos + 1,
-								replacement: CHARS.RIGHT_SINGLE,
+								replacement: isOpening ? CHARS.LEFT_SINGLE : CHARS.RIGHT_SINGLE,
 							});
 						}
-					} else if (isYearAbbrev) {
-						if (checkApostrophes) {
-							replacements.push({
-								messageId: 'preferApostrophe',
-								start: baseOffset + pos,
-								end: baseOffset + pos + 1,
-								replacement: CHARS.RIGHT_SINGLE,
-							});
-						}
-					} else if (isPrime) {
-						// It's a prime (after a digit) - only report if primes are enabled
-						if (checkPrimes) {
-							replacements.push({
-								messageId: 'preferPrime',
-								start: baseOffset + pos,
-								end: baseOffset + pos + 1,
-								replacement: CHARS.PRIME,
-							});
-						}
-						// Skip - don't treat as quote even if primes disabled
-					} else if (checkQuotes) {
-						// It's a quote - determine opening vs closing
-						const isOpening = pos === 0 || /[\s([{]/.test(prevChar) || prevChar === '';
-						replacements.push({
-							messageId: 'preferQuotes',
-							start: baseOffset + pos,
-							end: baseOffset + pos + 1,
-							replacement: isOpening ? CHARS.LEFT_SINGLE : CHARS.RIGHT_SINGLE,
-						});
 					}
 				}
 
-				// Process double prime for measurements (after digit)
-				if (checkPrimes) {
-					const doublePrimeRegex = /(\d)"/g;
+				// Process double prime for measurements (after digit) - O(1) lookup via Map
+				if (checkPrimes && hasDoubleQuote) {
+					REGEX_DOUBLE_PRIME.lastIndex = 0;
 					let primeMatch;
-					while ((primeMatch = doublePrimeRegex.exec(text)) !== null) {
+					while ((primeMatch = REGEX_DOUBLE_PRIME.exec(text)) !== null) {
 						const quotePos = primeMatch.index + 1;
-						const existingIdx = replacements.findIndex(
-							(r) =>
-								r.start === baseOffset + quotePos && r.messageId === 'preferQuotes',
-						);
-						if (existingIdx !== -1) {
+						const absolutePos = baseOffset + quotePos;
+						const existingIdx = positionToIndex.get(absolutePos);
+						if (
+							existingIdx !== undefined &&
+							replacements[existingIdx].messageId === 'preferQuotes'
+						) {
 							replacements[existingIdx] = {
 								messageId: 'preferPrime',
-								start: baseOffset + quotePos,
-								end: baseOffset + quotePos + 1,
+								start: absolutePos,
+								end: absolutePos + 1,
 								replacement: CHARS.DOUBLE_PRIME,
 							};
 						}
