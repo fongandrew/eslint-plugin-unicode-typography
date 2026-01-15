@@ -10,11 +10,13 @@ Typography matters. Using proper Unicode characters instead of ASCII approximati
 |------------|-----|
 | `...` | `…` (ellipsis) |
 | `--` | `—` (em dash) |
-| ` - ` | `–` (en dash) |
+| ` - ` | `–` (en dash, see below) |
 | `"quoted"` | `“quoted”` (smart quotes) |
 | `'quoted'` | `‘quoted’` (smart quotes) |
 | `don't` | `don’t` (smart apostrophe) |
 | `5' 6"` | `5′ 6″` (prime symbols) |
+
+**Note:** The en dash rule specifically looks for a space on either side. Words like `well-known` and `red-tailed` should use a hyphen but something like `9am–5pm` should use an en dash.
 
 ## Installation
 
@@ -65,12 +67,22 @@ export default [
 
 Enforces the use of proper Unicode typography characters.
 
+### Default Behavior
+
+By default, the rule checks:
+- **JSX children** (text inside JSX elements) - all elements
+- **JSX attributes** - only `title`, `alt`, `label`, `aria-label`, `aria-describedby`
+
+By default, the rule does NOT check:
+- **String literals** - disabled by default
+- **Template literals** - disabled by default
+
 ### Options
 
 ```js
 {
   "unicode-typography/prefer-unicode": ["warn", {
-    // Enable/disable specific replacements (all true by default)
+    // Replacement toggles (all true by default)
     "ellipsis": true,      // ... → …
     "emdash": true,        // -- → —
     "endash": true,        // " - " → –
@@ -78,49 +90,83 @@ Enforces the use of proper Unicode typography characters.
     "apostrophes": true,   // ' → ' (in contractions)
     "primes": true,        // ' " → ′ ″ (after numbers)
 
-    // JSX elements to exempt from checking
-    "exemptElements": ["code", "pre"]
+    // Scope options (trinary: true | false | object)
+    "checkStringLiterals": false,
+    "checkTemplateLiterals": false,
+    "checkAttributes": { "onlyAttributes": ["title", "alt", "label", "aria-label", "aria-describedby"] },
+    "checkChildren": true
   }]
 }
 ```
 
-### What Gets Checked
+### Scope Options
 
-- String literals (`const x = "hello..."`)
-- Template literals ("`hello...`")
-- JSX text (`<p>hello...</p>`)
-- JSX attribute values (`<div title="hello...">`)
+Each scope option accepts three types of values:
 
-### What Gets Skipped
+#### `checkStringLiterals`
 
-- Content inside exempt JSX elements (`<code>`, `<pre>` by default)
-- Code-like JSX attributes: `className`, `id`, `href`, `src`, `style`, `key`, `data-testid`
-- Hyphenated words (`well-known`, `red-tailed`) - only ` - ` with spaces triggers en dash
-
-### Exempt Elements
-
-By default, content inside `<code>` and `<pre>` elements is not checked:
-
-```jsx
-// ✅ No warning - inside <code>
-<code>const x = "hello...";</code>
-
-// ✅ No warning - inside <pre>
-<pre>
-  function test() {
-    return "foo--bar";
-  }
-</pre>
-```
-
-Configure additional exempt elements:
+Controls checking of string literals in JavaScript/TypeScript.
 
 ```js
-{
-  "unicode-typography/prefer-unicode": ["warn", {
-    "exemptElements": ["code", "pre", "kbd", "samp"]
-  }]
-}
+// Disable (default)
+"checkStringLiterals": false
+
+// Enable for all string literals
+"checkStringLiterals": true
+
+// Enable only inside specific function calls (e.g., i18n)
+"checkStringLiterals": { "onlyFunctions": ["t", "msg", "i18n.t"] }
+```
+
+#### `checkTemplateLiterals`
+
+Controls checking of template literals.
+
+```js
+// Disable (default)
+"checkTemplateLiterals": false
+
+// Enable for all template literals (tagged and untagged)
+"checkTemplateLiterals": true
+
+// Enable for specific tagged templates only
+"checkTemplateLiterals": { "tags": ["t", "msg"] }
+
+// Enable for untagged templates only
+"checkTemplateLiterals": { "untagged": true }
+
+// Enable for both specific tags and untagged
+"checkTemplateLiterals": { "tags": ["t"], "untagged": true }
+```
+
+#### `checkAttributes`
+
+Controls checking of JSX attribute values.
+
+```js
+// Disable
+"checkAttributes": false
+
+// Enable for all attributes
+"checkAttributes": true
+
+// Enable for specific attributes only (default)
+"checkAttributes": { "onlyAttributes": ["title", "alt", "label", "aria-label", "aria-describedby"] }
+```
+
+#### `checkChildren`
+
+Controls checking of JSX text content.
+
+```js
+// Disable
+"checkChildren": false
+
+// Enable for all elements (default)
+"checkChildren": true
+
+// Enable for specific elements/components only
+"checkChildren": { "onlyComponents": ["p", "span", "Text", "Label"] }
 ```
 
 ## Auto-fix

@@ -9,15 +9,26 @@ export type MessageIds =
 	| 'preferApostrophe'
 	| 'preferPrime';
 
+// Trinary option types
+type CheckStringLiteralsOption = boolean | { onlyFunctions: string[] };
+type CheckTemplateLiteralsOption = boolean | { tags?: string[]; untagged?: boolean };
+type CheckAttributesOption = boolean | { onlyAttributes: string[] };
+type CheckChildrenOption = boolean | { onlyComponents: string[] };
+
 export type Options = [
 	{
+		// Replacement type toggles
 		ellipsis?: boolean;
 		emdash?: boolean;
 		endash?: boolean;
 		quotes?: boolean;
 		apostrophes?: boolean;
 		primes?: boolean;
-		exemptElements?: string[];
+		// Scope options
+		checkStringLiterals?: CheckStringLiteralsOption;
+		checkTemplateLiterals?: CheckTemplateLiteralsOption;
+		checkAttributes?: CheckAttributesOption;
+		checkChildren?: CheckChildrenOption;
 	},
 ];
 
@@ -26,28 +37,16 @@ const CHARS = {
 	ELLIPSIS: '\u2026', // …
 	EMDASH: '\u2014', // —
 	ENDASH: '\u2013', // –
-	LEFT_DOUBLE: '\u201C', // “
-	RIGHT_DOUBLE: '\u201D', // ”
-	LEFT_SINGLE: '\u2018', // ‘
-	RIGHT_SINGLE: '\u2019', // ’ (also used for apostrophe)
+	LEFT_DOUBLE: '\u201C', // "
+	RIGHT_DOUBLE: '\u201D', // "
+	LEFT_SINGLE: '\u2018', // '
+	RIGHT_SINGLE: '\u2019', // ' (also used for apostrophe)
 	PRIME: '\u2032', // ′
 	DOUBLE_PRIME: '\u2033', // ″
 };
 
-// Code-like JSX attributes that should not be checked
-const CODE_LIKE_ATTRIBUTES = new Set([
-	'className',
-	'class',
-	'id',
-	'style',
-	'href',
-	'src',
-	'data-testid',
-	'key',
-]);
-
-// Default exempt JSX elements
-const DEFAULT_EXEMPT_ELEMENTS = ['code', 'pre'];
+// Default attributes to check
+const DEFAULT_CHECKED_ATTRIBUTES = ['title', 'alt', 'label', 'aria-label', 'aria-describedby'];
 
 // Get element name from JSX identifier
 function getElementName(
@@ -61,6 +60,50 @@ function getElementName(
 	}
 	if (node.type === AST_NODE_TYPES.JSXNamespacedName) {
 		return `${node.namespace.name}:${node.name.name}`;
+	}
+	return '';
+}
+
+// Get the callee name from a call expression (handles both simple and member expressions)
+function getCalleeName(node: TSESTree.CallExpression): string | null {
+	if (node.callee.type === AST_NODE_TYPES.Identifier) {
+		return node.callee.name;
+	}
+	if (node.callee.type === AST_NODE_TYPES.MemberExpression) {
+		const parts: string[] = [];
+		let current: TSESTree.Expression = node.callee;
+		while (current.type === AST_NODE_TYPES.MemberExpression) {
+			if (current.property.type === AST_NODE_TYPES.Identifier) {
+				parts.unshift(current.property.name);
+			}
+			current = current.object;
+		}
+		if (current.type === AST_NODE_TYPES.Identifier) {
+			parts.unshift(current.name);
+		}
+		return parts.join('.');
+	}
+	return null;
+}
+
+// Get tag name from tagged template expression
+function getTagName(node: TSESTree.TaggedTemplateExpression): string {
+	if (node.tag.type === AST_NODE_TYPES.Identifier) {
+		return node.tag.name;
+	}
+	if (node.tag.type === AST_NODE_TYPES.MemberExpression) {
+		const parts: string[] = [];
+		let current: TSESTree.Expression = node.tag;
+		while (current.type === AST_NODE_TYPES.MemberExpression) {
+			if (current.property.type === AST_NODE_TYPES.Identifier) {
+				parts.unshift(current.property.name);
+			}
+			current = current.object;
+		}
+		if (current.type === AST_NODE_TYPES.Identifier) {
+			parts.unshift(current.name);
+		}
+		return parts.join('.');
 	}
 	return '';
 }
@@ -90,9 +133,66 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 					quotes: { type: 'boolean' },
 					apostrophes: { type: 'boolean' },
 					primes: { type: 'boolean' },
-					exemptElements: {
-						type: 'array',
-						items: { type: 'string' },
+					checkStringLiterals: {
+						oneOf: [
+							{ type: 'boolean' },
+							{
+								type: 'object',
+								properties: {
+									onlyFunctions: {
+										type: 'array',
+										items: { type: 'string' },
+									},
+								},
+								additionalProperties: false,
+							},
+						],
+					},
+					checkTemplateLiterals: {
+						oneOf: [
+							{ type: 'boolean' },
+							{
+								type: 'object',
+								properties: {
+									tags: {
+										type: 'array',
+										items: { type: 'string' },
+									},
+									untagged: { type: 'boolean' },
+								},
+								additionalProperties: false,
+							},
+						],
+					},
+					checkAttributes: {
+						oneOf: [
+							{ type: 'boolean' },
+							{
+								type: 'object',
+								properties: {
+									onlyAttributes: {
+										type: 'array',
+										items: { type: 'string' },
+									},
+								},
+								additionalProperties: false,
+							},
+						],
+					},
+					checkChildren: {
+						oneOf: [
+							{ type: 'boolean' },
+							{
+								type: 'object',
+								properties: {
+									onlyComponents: {
+										type: 'array',
+										items: { type: 'string' },
+									},
+								},
+								additionalProperties: false,
+							},
+						],
 					},
 				},
 				additionalProperties: false,
@@ -111,23 +211,100 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 	create(context) {
 		const options = context.options[0] ?? {};
 		const {
+			// Replacement type toggles (all default to true)
 			ellipsis: checkEllipsis = true,
 			emdash: checkEmdash = true,
 			endash: checkEndash = true,
 			quotes: checkQuotes = true,
 			apostrophes: checkApostrophes = true,
 			primes: checkPrimes = true,
-			exemptElements = DEFAULT_EXEMPT_ELEMENTS,
+			// Scope options with defaults
+			checkStringLiterals = false,
+			checkTemplateLiterals = false,
+			checkAttributes = { onlyAttributes: DEFAULT_CHECKED_ATTRIBUTES },
+			checkChildren = true,
 		} = options;
 
-		// Track JSX element context for exempt elements
+		// Track JSX element context
 		const jsxElementStack: string[] = [];
 
-		// Check if currently inside an exempt element
-		function isInExemptElement(): boolean {
-			return jsxElementStack.some(
-				(el) => exemptElements.includes(el) || exemptElements.includes(el.toLowerCase()),
+		// Get the immediate parent element name
+		function getCurrentElementName(): string | null {
+			return jsxElementStack.length > 0 ? jsxElementStack[jsxElementStack.length - 1] : null;
+		}
+
+		// Check if we should check JSX children based on checkChildren option
+		function shouldCheckChildren(): boolean {
+			if (checkChildren === false) return false;
+			if (checkChildren === true) return true;
+
+			// { onlyComponents: [...] }
+			const currentElement = getCurrentElementName();
+			if (!currentElement) return false;
+
+			const allowedComponents = checkChildren.onlyComponents;
+			return (
+				allowedComponents.includes(currentElement) ||
+				allowedComponents.includes(currentElement.toLowerCase())
 			);
+		}
+
+		// Check if we should check an attribute based on checkAttributes option
+		function shouldCheckAttribute(attrName: string): boolean {
+			if (checkAttributes === false) return false;
+			if (checkAttributes === true) return true;
+
+			// { onlyAttributes: [...] }
+			return checkAttributes.onlyAttributes.includes(attrName);
+		}
+
+		// Check if we should check a string literal based on checkStringLiterals option and context
+		function shouldCheckStringLiteral(node: TSESTree.Literal): boolean {
+			if (checkStringLiterals === false) return false;
+			if (checkStringLiterals === true) return true;
+
+			// { onlyFunctions: [...] }
+			const allowedFunctions = checkStringLiterals.onlyFunctions;
+			return isInsideAllowedFunction(node, allowedFunctions);
+		}
+
+		// Check if a node is inside an allowed function call
+		function isInsideAllowedFunction(node: TSESTree.Node, allowedFunctions: string[]): boolean {
+			let current: TSESTree.Node | undefined = node.parent;
+			while (current) {
+				if (current.type === AST_NODE_TYPES.CallExpression) {
+					const calleeName = getCalleeName(current);
+					if (calleeName && allowedFunctions.includes(calleeName)) {
+						return true;
+					}
+				}
+				current = current.parent;
+			}
+			return false;
+		}
+
+		// Check if we should check a template literal based on checkTemplateLiterals option
+		function shouldCheckTemplateLiteral(node: TSESTree.TemplateElement): boolean {
+			if (checkTemplateLiterals === false) return false;
+			if (checkTemplateLiterals === true) return true;
+
+			// { tags?: [...], untagged?: boolean }
+			const parent = node.parent;
+			if (!parent) return false;
+
+			// Check if it's a tagged template
+			if (parent.type === AST_NODE_TYPES.TemplateLiteral && parent.parent) {
+				if (parent.parent.type === AST_NODE_TYPES.TaggedTemplateExpression) {
+					// It's tagged - check if tag is in allowed list
+					const tagName = getTagName(parent.parent);
+					return checkTemplateLiterals.tags?.includes(tagName) ?? false;
+				} else {
+					// It's untagged
+					return checkTemplateLiterals.untagged ?? false;
+				}
+			}
+
+			return false;
 		}
 
 		// Find all replacements in a text string
@@ -177,12 +354,9 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 			}
 
 			// Smart quotes and apostrophes need more complex handling
-			// We process them character by character to determine context
-
 			if (checkQuotes || checkApostrophes || checkPrimes) {
 				// Process double quotes
 				if (checkQuotes) {
-					// Find all straight double quotes
 					const doubleQuoteRegex = /"/g;
 					let match;
 					const doubleQuotePositions: number[] = [];
@@ -229,7 +403,6 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 								replacement: CHARS.RIGHT_SINGLE,
 							});
 						}
-						// If apostrophes disabled, skip this character entirely
 					} else if (isYearAbbrev) {
 						if (checkApostrophes) {
 							replacements.push({
@@ -239,17 +412,19 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 								replacement: CHARS.RIGHT_SINGLE,
 							});
 						}
-						// If apostrophes disabled, skip this character entirely
-					} else if (isPrime && checkPrimes) {
-						replacements.push({
-							messageId: 'preferPrime',
-							start: baseOffset + pos,
-							end: baseOffset + pos + 1,
-							replacement: CHARS.PRIME,
-						});
+					} else if (isPrime) {
+						// It's a prime (after a digit) - only report if primes are enabled
+						if (checkPrimes) {
+							replacements.push({
+								messageId: 'preferPrime',
+								start: baseOffset + pos,
+								end: baseOffset + pos + 1,
+								replacement: CHARS.PRIME,
+							});
+						}
+						// Skip - don't treat as quote even if primes disabled
 					} else if (checkQuotes) {
 						// It's a quote - determine opening vs closing
-						// Opening if preceded by whitespace/start or opening bracket
 						const isOpening = pos === 0 || /[\s([{]/.test(prevChar) || prevChar === '';
 						replacements.push({
 							messageId: 'preferQuotes',
@@ -265,14 +440,12 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 					const doublePrimeRegex = /(\d)"/g;
 					let primeMatch;
 					while ((primeMatch = doublePrimeRegex.exec(text)) !== null) {
-						// Find if we already have a replacement for this position
-						const quotePos = primeMatch.index + 1; // Position of the "
+						const quotePos = primeMatch.index + 1;
 						const existingIdx = replacements.findIndex(
 							(r) =>
 								r.start === baseOffset + quotePos && r.messageId === 'preferQuotes',
 						);
 						if (existingIdx !== -1) {
-							// Replace the quote replacement with prime
 							replacements[existingIdx] = {
 								messageId: 'preferPrime',
 								start: baseOffset + quotePos,
@@ -320,7 +493,7 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 		}
 
 		return {
-			// Track JSX element context - use JSXElement to cover entire element
+			// Track JSX element context
 			JSXElement(node) {
 				if (node.openingElement?.name) {
 					jsxElementStack.push(getElementName(node.openingElement.name));
@@ -340,40 +513,46 @@ const rule: TSESLint.RuleModule<MessageIds, Options> = {
 					return;
 				}
 
+				// Check based on checkStringLiterals option
+				if (!shouldCheckStringLiteral(node)) return;
+
 				// The range includes quotes, so offset by 1
 				checkText(node, node.value, node.range[0] + 1);
 			},
 
 			// Check template literal quasi elements
 			TemplateElement(node) {
+				// Check based on checkTemplateLiterals option
+				if (!shouldCheckTemplateLiteral(node)) return;
+
 				const text = node.value.raw;
-				// Template element range includes the backticks/braces
-				// The actual text starts after ` or }
 				checkText(node, text, node.range[0] + 1);
 			},
 
-			// Check JSX text (respecting exempt elements)
+			// Check JSX text (respecting checkChildren option)
 			JSXText(node) {
-				if (isInExemptElement()) return;
+				if (!shouldCheckChildren()) return;
 				checkText(node, node.value, node.range[0]);
 			},
 
-			// Check JSX attribute values (but not code-like attributes)
+			// Check JSX attribute values (based on checkAttributes option)
 			JSXAttribute(node) {
-				// Skip code-like attributes
-				if (
-					node.name.type === AST_NODE_TYPES.JSXIdentifier &&
-					CODE_LIKE_ATTRIBUTES.has(node.name.name)
-				) {
-					return;
-				}
+				// Get attribute name
+				const attrName =
+					node.name.type === AST_NODE_TYPES.JSXIdentifier
+						? node.name.name
+						: node.name.type === AST_NODE_TYPES.JSXNamespacedName
+							? `${node.name.namespace.name}:${node.name.name.name}`
+							: '';
+
+				// Check if this attribute should be checked
+				if (!shouldCheckAttribute(attrName)) return;
 
 				// Check the value if it's a string literal
 				if (
 					node.value?.type === AST_NODE_TYPES.Literal &&
 					typeof node.value.value === 'string'
 				) {
-					// Range includes quotes, offset by 1
 					checkText(node.value, node.value.value, node.value.range[0] + 1);
 				}
 			},

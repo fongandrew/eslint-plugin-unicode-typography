@@ -11,7 +11,8 @@
     "build": "tsc",
     "format": "prettier --write src/**/*.ts",
     "lint": "eslint src",
-    "test": "jest"
+    "test": "jest",
+    "typecheck": "tsc --noEmit"
   },
   "author": "Andrew Fong <id@andrewfong.com>",
   "license": "MIT",
