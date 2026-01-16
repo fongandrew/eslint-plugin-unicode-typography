@@ -1,10 +1,10 @@
 # eslint-plugin-unicode-typography
 
-ESLint plugin to enforce proper Unicode typography characters instead of ASCII approximations.
+ESLint plugin to enforce proper Unicode typography characters instead of ASCII approximations. This is similar to [smartquotes.js](https://github.com/kellym/smartquotes.js) or [eslint-plugin-prefer-smart-quotes](https://github.com/totallymoney/eslint-plugin-prefer-smart-quotes/tree/main) but includes characters other than just quotes and more granular configuration options.
 
 ## Why?
 
-Typography matters. Using proper Unicode characters instead of ASCII approximations makes your text more readable and professional:
+Using proper Unicode characters instead of ASCII approximations makes your text more readable and professional:
 
 | Instead of | Use |
 |------------|-----|
@@ -179,7 +179,6 @@ eslint --fix src/
 
 ## Related
 
-- [smartquotes.js](https://github.com/kellym/smartquotes.js) - Inspiration for quote replacement logic
 
 ## License
 
