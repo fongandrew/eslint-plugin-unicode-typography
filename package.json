@@ -1,6 +1,6 @@
 {
   "name": "eslint-plugin-unicode-typography",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "ESLint plugin to enforce use of unicode characaters for typography",
   "main": "dist/index.js",
   "files": [
@@ -23,10 +23,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/fongandrew/eslint-plugin-css-class-usage.git"
+    "url": "https://github.com/fongandrew/eslint-plugin-unicode-typography.git"
   },
   "bugs": {
-    "url": "https://github.com/fongandrew/eslint-plugin-css-class-usage/issues"
+    "url": "https://github.com/fongandrew/eslint-plugin-unicode-typography/issues"
   },
   "peerDependencies": {
     "eslint": ">=7.0.0",

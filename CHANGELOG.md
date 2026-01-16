@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2025-01-15
+
+### Fixed
+
+- Fixed incorrect repo URL in package.json
+
 ## [1.0.0] - 2025-01-15
 
 ### Added
